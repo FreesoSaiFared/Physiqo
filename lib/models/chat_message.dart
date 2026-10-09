@@ -9,6 +9,10 @@ class ChatMessage {
   final String? toolCallId;
   final String? toolName;
   final String? toolArgs;
+
+  /// Opaque provider data for a tool call that must be echoed back later
+  /// (Gemini `thoughtSignature`). Null for everything else.
+  final String? toolMeta;
   final List<String>? images;
   final String? providerServed;
 
@@ -21,6 +25,7 @@ class ChatMessage {
     this.toolCallId,
     this.toolName,
     this.toolArgs,
+    this.toolMeta,
     this.images,
     this.providerServed,
   });
@@ -34,6 +39,7 @@ class ChatMessage {
         if (toolCallId != null) 'toolCallId': toolCallId,
         if (toolName != null) 'toolName': toolName,
         if (toolArgs != null) 'toolArgs': toolArgs,
+        if (toolMeta != null) 'toolMeta': toolMeta,
         if (images != null) 'images': images,
         if (providerServed != null) 'providerServed': providerServed,
       };
@@ -47,6 +53,7 @@ class ChatMessage {
         toolCallId: json['toolCallId'] as String?,
         toolName: json['toolName'] as String?,
         toolArgs: json['toolArgs'] as String?,
+        toolMeta: json['toolMeta'] as String?,
         images: json['images'] != null ? List<String>.from(json['images'] as List) : null,
         providerServed: json['providerServed'] as String?,
       );
@@ -66,6 +73,7 @@ class ChatMessage {
       toolCallId: toolCallId,
       toolName: toolName,
       toolArgs: toolArgs,
+      toolMeta: toolMeta,
       images: images ?? this.images,
       providerServed: providerServed ?? this.providerServed,
     );

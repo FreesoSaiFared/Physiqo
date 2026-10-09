@@ -157,22 +157,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         attempt++;
         try {
           if (nameLower == 'gemini' || url.contains('generativelanguage.googleapis.com')) {
-            final uri = Uri.parse('$url/models?key=$key');
-            response = await http.get(uri).timeout(timeoutDuration);
+            // Key goes in a header, never in the URL.
+            final uri = Uri.parse('$url/models?pageSize=1000');
+            response = await http.get(uri, headers: {'x-goog-api-key': key}).timeout(timeoutDuration);
           } else if (nameLower == 'anthropic' || url.contains('anthropic.com')) {
-            final uri = Uri.parse('$url/messages');
-            response = await http.post(
+            // Listing models needs no (possibly retired) hard-coded model id.
+            final uri = Uri.parse('$url/models');
+            response = await http.get(
               uri,
               headers: {
-                'content-type': 'application/json',
                 'x-api-key': key,
                 'anthropic-version': '2023-06-01',
               },
-              body: jsonEncode({
-                'model': 'claude-3-haiku-20240307',
-                'messages': [{'role': 'user', 'content': 'Hi'}],
-                'max_tokens': 1,
-              }),
             ).timeout(timeoutDuration);
           } else {
             final uri = Uri.parse('$url/models');
@@ -304,7 +300,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       await prefs.setString('active_vision_provider', provider);
 
       String defaultModel = 'google/gemini-2.5-flash';
-      if (provider == 'Gemini') defaultModel = 'gemini-1.5-flash';
+      if (provider == 'Gemini') defaultModel = 'gemini-2.5-flash';
       if (provider == 'Nvidia NIM') defaultModel = 'meta/llama3-70b-instruct';
       if (provider == 'Reka') defaultModel = 'reka-flash';
 

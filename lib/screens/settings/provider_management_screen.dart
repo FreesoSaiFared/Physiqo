@@ -115,8 +115,8 @@ class _ProviderManagementScreenState extends State<ProviderManagementScreen> {
           attempt++;
           try {
             if (name == 'gemini' || url.contains('generativelanguage.googleapis.com')) {
-              final uri = Uri.parse('$url/models?key=$key');
-              response = await http.get(uri).timeout(timeoutDuration);
+              final uri = Uri.parse('$url/models?pageSize=1000');
+              response = await http.get(uri, headers: {'x-goog-api-key': key}).timeout(timeoutDuration);
             } else {
               final uri = Uri.parse('$url/models');
               response = await http.get(uri, headers: {

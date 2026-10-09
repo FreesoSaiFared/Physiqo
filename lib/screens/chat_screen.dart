@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:image_picker/image_picker.dart';
@@ -13,6 +14,7 @@ import '../models/chat_session.dart';
 import '../models/ai_stream_event.dart';
 import '../repositories/chat_repository.dart';
 import '../l10n/translations.dart';
+import '../ai/ai_policy.dart';
 import '../services/ai_service.dart';
 import '../services/ai_tools.dart';
 import '../services/ai_orchestrator.dart';
@@ -186,6 +188,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
   String _getFriendlyErrorMessage(dynamic error, BuildContext context) {
     final errStr = error.toString();
     final isFa = Localizations.localeOf(context).languageCode == 'fa';
+    if (error is AiError) return error.userMessage(isFa: isFa);
     
     if (errStr.contains('empty response') || errStr.contains('Empty AI response')) {
       return isFa
@@ -205,9 +208,10 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
           : 'Server Connection Failed.\nUnable to reach the AI server. Please ensure your internet connection is active and your VPN is turned on.';
     }
     
-    return isFa 
-        ? '${context.tr('chat_network_error')}\n\n$errStr'
-        : 'Connection failed.\n\n$errStr';
+    // Never print raw exception text to the user.
+    return isFa
+        ? context.tr('chat_network_error')
+        : 'Something went wrong while contacting the AI. Please try again.';
   }
 
   Future<void> _sendMessage() async {
@@ -261,7 +265,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
     while (true) {
       if (!mounted || _activeSession == null || _generationCancelled) break;
       loopCount++;
-      if (loopCount > 8) {
+      if (loopCount > AiLimits.maxToolLoops) {
         debugPrint('⚠️ Runaway tool calling detected. Breaking loop.');
         break;
       }
@@ -314,7 +318,7 @@ ${contextData['userContext']}
         final rawStream = _aiService.sendMessageStream(
           historyToKeep,
           systemPrompt: systemPrompt,
-          toolsOverride: loopCount >= 7 ? [] : tools,
+          toolsOverride: loopCount >= AiLimits.maxToolLoops ? <Map<String, dynamic>>[] : tools,
           chatId: _activeSession!.id,
         );
         final stream = rawStream;
@@ -341,14 +345,27 @@ ${contextData['userContext']}
           (event) {
             if (!mounted || _activeSession == null || _generationCancelled) return;
             
+            if (event.reset) {
+              // A failed attempt is being retried elsewhere: drop its text.
+              finalContent = '';
+            }
+            var contentChanged = event.reset;
             if (event.deltaText.isNotEmpty) {
               final timeline = AiLogger.instance.getActiveTimeline();
               if (timeline.isNotEmpty && timeline.last.name == 'LLM Stream Request') {
                 AiLogger.instance.completeTraceStep(details: 'First token received');
                 AiLogger.instance.startTraceStep('Receiving Content Stream');
               }
-
-              finalContent = event.deltaText;
+              // Events carry true deltas; accumulate them.
+              finalContent += event.deltaText;
+              contentChanged = true;
+            }
+            if (event.isDone && event.finalText != null && event.finalText != finalContent) {
+              // The final text is authoritative (text-embedded tool calls removed).
+              finalContent = event.finalText!;
+              contentChanged = true;
+            }
+            if (contentChanged) {
               setState(() {
                 final index = _activeSession!.messages.indexWhere((m) => m.id == streamingMsg.id);
                 if (index != -1) {
@@ -357,12 +374,12 @@ ${contextData['userContext']}
                   _activeSession = _activeSession!.copyWith(messages: msgs);
                 }
               });
-              
+
               if (_autoScrollEnabled) {
                 _scrollToBottom();
               }
             }
-            
+
             if (event.isDone) {
               finalToolCalls = event.toolCalls;
               AiLogger.instance.completeTraceStep(
@@ -403,7 +420,7 @@ ${contextData['userContext']}
             msgs.removeWhere((m) => m.id == streamingMsg.id);
             _activeSession = _activeSession!.copyWith(messages: msgs);
             _refreshActiveSession();
-            throw Exception('Empty AI response — the stream ended without content. This is usually a dropped VPN/proxy connection or a provider returning an empty body.');
+            throw const AiError(AiErrorKind.emptyResponse);
           }
           if (finalContent.isNotEmpty) {
             final completedMsg = _activeSession!.messages.firstWhere((m) => m.id == streamingMsg.id, orElse: () => streamingMsg).copyWith(content: finalContent);
@@ -429,6 +446,7 @@ ${contextData['userContext']}
                 toolCallId: call.id,
                 toolName: call.name,
                 toolArgs: jsonEncode(call.arguments),
+                toolMeta: call.thoughtSignature,
                 timestamp: DateTime.now(),
               );
               await _repository.addMessage(_activeSession!.id, assistantMsg);
@@ -454,16 +472,14 @@ ${contextData['userContext']}
               details: 'Running: ${toolCalls.map((c) => c.name).join(", ")}'
             );
 
-            // Execute all tools concurrently
-            final futures = toolCalls.asMap().entries.map((entry) async {
-              final index = entry.key;
-              final call = entry.value;
+            // Tools mutate shared state: run them one after another.
+            final results = <Map<String, dynamic>>[];
+            for (var index = 0; index < toolCalls.length; index++) {
+              if (_generationCancelled || !mounted) break;
+              final call = toolCalls[index];
               final result = await AiTools.executeTool(context, call.name, call.arguments);
-              return {'index': index, 'result': result};
-            }).toList();
-
-            // Wait for all to finish
-            final results = await Future.wait(futures);
+              results.add({'index': index, 'result': result});
+            }
             AiLogger.instance.completeTraceStep(
               details: 'Executed ${results.length} tools successfully'
             );
@@ -785,12 +801,14 @@ ${contextData['userContext']}
                 children: [
                   // History button (RTL right side -> start of row)
                   GestureDetector(
-                    onLongPress: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => const AiDebugDialog(),
-                      );
-                    },
+                    onLongPress: !kDebugMode
+                        ? null
+                        : () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => const AiDebugDialog(),
+                            );
+                          },
                     child: IconButton(
                       icon: const Icon(Icons.history, color: AppTheme.textPrimary),
                       onPressed: _showHistorySheet,

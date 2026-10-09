@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 class AiTraceStep {
   final String name;
   final DateTime startTime;
@@ -61,6 +63,30 @@ class AiLogger {
   static final AiLogger instance = AiLogger._internal();
   AiLogger._internal();
 
+  /// Request/response logging is for developers: off in release builds
+  /// unless a hidden developer toggle sets this to true.
+  static bool enabled = !kReleaseMode;
+
+  static const int _maxStringLen = 4000;
+
+  /// Deep-copies [v], replacing base64/data-URL blobs and capping long strings
+  /// so logs stay small and never hold images.
+  static dynamic sanitize(dynamic v) {
+    if (v is Map) {
+      return v.map((k, val) => MapEntry(k.toString(), sanitize(val)));
+    }
+    if (v is List) return v.map(sanitize).toList();
+    if (v is String) {
+      if (v.startsWith('data:') || RegExp(r'^[A-Za-z0-9+/=\s]{400,}$').hasMatch(v)) {
+        return '[binary omitted: ${v.length} chars]';
+      }
+      if (v.length > _maxStringLen) {
+        return '${v.substring(0, _maxStringLen)}…[${v.length} chars]';
+      }
+    }
+    return v;
+  }
+
   final Map<String, List<AiLogEntry>> _logsByChat = {};
   final List<AiTraceStep> _activeTimeline = [];
   final int maxLogs = 10;
@@ -81,7 +107,7 @@ class AiLogger {
       startTime: DateTime.now(),
       details: details,
     ));
-    print('⏳ [TRACE START] $name ${details != null ? "($details)" : ""}');
+    if (kDebugMode) debugPrint('⏳ [TRACE START] $name ${details != null ? "($details)" : ""}');
   }
 
   void completeTraceStep({String? details, String status = 'completed'}) {
@@ -91,7 +117,7 @@ class AiLogger {
       if (details != null) {
         _activeTimeline.last.details = details;
       }
-      print('⏳ [TRACE END] ${_activeTimeline.last.name} in ${_activeTimeline.last.endTime!.difference(_activeTimeline.last.startTime).inMilliseconds}ms');
+      if (kDebugMode) debugPrint('⏳ [TRACE END] ${_activeTimeline.last.name} in ${_activeTimeline.last.endTime!.difference(_activeTimeline.last.startTime).inMilliseconds}ms');
     }
   }
 
@@ -112,6 +138,11 @@ class AiLogger {
     String? error,
     String? chatId,
   }) {
+    if (!enabled) return;
+    requestPayload = Map<String, dynamic>.from(sanitize(requestPayload) as Map);
+    if (responseRaw.length > 20000) {
+      responseRaw = '${responseRaw.substring(0, 20000)}…[${responseRaw.length} chars]';
+    }
     final targetId = chatId ?? _activeChatId;
     _logsByChat.putIfAbsent(targetId, () => []);
     

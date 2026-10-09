@@ -187,8 +187,8 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
             if (baseUrl.endsWith('/openai')) {
               baseUrl = baseUrl.replaceAll('/openai', '');
             }
-            final uri = Uri.parse('$baseUrl/models?key=$key');
-            response = await http.get(uri).timeout(timeoutDuration);
+            final uri = Uri.parse('$baseUrl/models?pageSize=1000');
+            response = await http.get(uri, headers: {'x-goog-api-key': key}).timeout(timeoutDuration);
           } else {
             final uri = Uri.parse('$url/models');
             response = await http.get(uri, headers: {

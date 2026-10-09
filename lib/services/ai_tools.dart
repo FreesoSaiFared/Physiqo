@@ -43,12 +43,12 @@ class AiTools {
       "type": "function",
       "function": {
         "name": "manage_accounts",
-        "description": "Manages user accounts on this device (lists all, switches to one, creates one, or deletes one).",
+        "description": "Manages user accounts on this device (lists all, switches to one, or creates one). The user is asked to confirm switching and creating.",
         "parameters": {
           "type": "object",
           "properties": {
-            "action": {"type": "string", "enum": ["list", "switch", "create", "delete"]},
-            "accountId": {"type": "string", "description": "Required for switch and delete actions"},
+            "action": {"type": "string", "enum": ["list", "switch", "create"]},
+            "accountId": {"type": "string", "description": "Required for the switch action"},
             "accountName": {"type": "string", "description": "Required for create action"}
           },
           "required": ["action"]
@@ -59,7 +59,7 @@ class AiTools {
       "type": "function",
       "function": {
         "name": "manage_workout_schedule",
-        "description": "Manages workout plans on the schedule. Can query a summary over a date range, get details for a specific date, delete a specific date's plan, or clear all workout plans.",
+        "description": "Manages workout plans on the schedule. Can query a summary over a date range, get details for a specific date, delete a specific date's plan, or clear all workout plans. Deleting and clearing ask the user to confirm first.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -146,7 +146,7 @@ class AiTools {
         "parameters": {
           "type": "object",
           "properties": {
-            "screenName": {"type": "string", "enum": ["home", "moves", "chat", "body", "settings", "analysis", "schedule_overview", "onboarding"]}
+            "screenName": {"type": "string", "enum": ["home", "moves", "chat", "body", "settings", "analysis", "schedule_overview"]}
           },
           "required": ["screenName"]
         }
@@ -177,6 +177,35 @@ class AiTools {
   };
   
 
+
+  static const String _declinedResult =
+      "The user declined this action in the confirmation dialog. Nothing was changed.";
+
+  /// Asks the user to confirm a destructive or irreversible action.
+  /// Returns false when declined, dismissed, or when the screen is gone.
+  static Future<bool> _confirm(BuildContext context, {required String titleEn, required String titleFa, required String messageEn, required String messageFa}) async {
+    if (!context.mounted) return false;
+    final isFa = Localizations.localeOf(context).languageCode == 'fa';
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(isFa ? titleFa : titleEn),
+        content: Text(isFa ? messageFa : messageEn),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(isFa ? 'لغو' : 'Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(isFa ? 'تأیید' : 'Confirm'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
 
   static Future<String> executeTool(BuildContext context, String name, Map<String, dynamic> args) async {
     debugPrint('🔧 Tool invoked: $name with args: $args');
@@ -213,13 +242,13 @@ class AiTools {
             unitSystem: unitSystem,
           );
 
+          String? daysError;
           if (args.containsKey('workoutDays')) {
             dynamic daysArg = args['workoutDays'];
             List<dynamic> daysRaw = [];
             if (daysArg is String) {
               try {
-                final fixedJson = daysArg.replaceAll("'", '"');
-                daysRaw = jsonDecode(fixedJson) as List<dynamic>;
+                daysRaw = jsonDecode(daysArg) as List<dynamic>;
               } catch (_) {
                 final cleaned = daysArg.replaceAll(RegExp(r"[\[\]' ]"), '');
                 daysRaw = cleaned.split(',').where((s) => s.isNotEmpty).toList();
@@ -245,7 +274,12 @@ class AiTools {
                 daysList.add(internalKey);
               }
             }
-            await prefs.setStringList(AccountManager.getPrefKey('workout_days'), daysList);
+            if (daysRaw.isNotEmpty && daysList.isEmpty) {
+              // Unrecognised names: keep the user's existing days, tell the model.
+              daysError = "workoutDays was not saved. Use day names like Monday, Tuesday, ... Sunday.";
+            } else {
+              await prefs.setStringList(AccountManager.getPrefKey('workout_days'), daysList);
+            }
           }
 
           if (args.containsKey('defaultRestTime')) {
@@ -282,6 +316,7 @@ class AiTools {
           final weightUnit = profile.unitSystem == 'imperial' ? 'lbs' : 'kg';
           final heightUnit = profile.unitSystem == 'imperial' ? 'in' : 'cm';
           result = "User data updated successfully. Current profile: name: ${profile.name}, weight: ${profile.weight}$weightUnit, height: ${profile.height}$heightUnit, units: ${profile.unitSystem}";
+          if (daysError != null) result = "$result WARNING: $daysError";
           break;
 
         case 'manage_accounts':
@@ -295,6 +330,14 @@ class AiTools {
             case 'switch':
               final id = args['accountId']?.toString() ?? '';
               if (AccountManager.accounts.any((a) => a.id == id)) {
+                if (!await _confirm(context,
+                    titleEn: 'Switch account?',
+                    titleFa: 'تغییر حساب؟',
+                    messageEn: 'The coach wants to switch to another account on this device.',
+                    messageFa: 'مربی می‌خواهد به حساب دیگری در این دستگاه تغییر دهد.')) {
+                  result = _declinedResult;
+                  break;
+                }
                 await AccountManager.switchAccount(id);
                 if (context.mounted) {
                   Navigator.pushNamedAndRemoveUntil(context, '/main', (route) => false);
@@ -306,19 +349,22 @@ class AiTools {
               break;
             case 'create':
               final name = args['accountName']?.toString() ?? 'User';
+              if (!await _confirm(context,
+                  titleEn: 'Create account?',
+                  titleFa: 'ساخت حساب؟',
+                  messageEn: 'The coach wants to create a new account named "$name".',
+                  messageFa: 'مربی می‌خواهد حساب جدیدی با نام «$name» بسازد.')) {
+                result = _declinedResult;
+                break;
+              }
               final newId = DateTime.now().millisecondsSinceEpoch.toString();
               final newAccount = Account(id: newId, name: name);
               await AccountManager.addAccount(newAccount);
               result = "Created new account ID $newId with name $name";
               break;
             case 'delete':
-              final id = args['accountId']?.toString() ?? '';
-              if (AccountManager.accounts.any((a) => a.id == id)) {
-                await AccountManager.deleteAccount(id);
-                result = "Deleted account ID $id";
-              } else {
-                result = "Account ID $id not found";
-              }
+              // Never available to the model: only the user may delete accounts.
+              result = "Deleting accounts is not available to the assistant. The user can do it in Settings.";
               break;
             default:
               result = "Unsupported account action: $action";
@@ -360,6 +406,14 @@ class AiTools {
             case 'delete_day':
               final date = DateTime.tryParse(args['date']?.toString() ?? '');
               if (date != null) {
+                if (!await _confirm(context,
+                    titleEn: 'Delete workout?',
+                    titleFa: 'حذف تمرین؟',
+                    messageEn: 'Delete the workout planned for ${args['date']}? This cannot be undone.',
+                    messageFa: 'تمرین برنامه‌ریزی‌شده برای ${args['date']} حذف شود؟ این کار قابل بازگشت نیست.')) {
+                  result = _declinedResult;
+                  break;
+                }
                 await ExerciseRepository.instance.deleteWorkoutDay(date);
                 result = "Workout for ${args['date']} deleted successfully.";
               } else {
@@ -367,6 +421,14 @@ class AiTools {
               }
               break;
             case 'clear_all':
+              if (!await _confirm(context,
+                  titleEn: 'Delete ALL workout plans?',
+                  titleFa: 'حذف همه برنامه‌های تمرینی؟',
+                  messageEn: 'This deletes every workout plan on your schedule and cannot be undone.',
+                  messageFa: 'این کار همه برنامه‌های تمرینی شما را حذف می‌کند و قابل بازگشت نیست.')) {
+                result = _declinedResult;
+                break;
+              }
               await ExerciseRepository.instance.clearAllWorkoutPlans();
               result = "All workout plans have been deleted successfully.";
               break;
@@ -648,7 +710,11 @@ class AiTools {
           break;
 
         case 'navigate_to_screen':
-          result = "ACTION_NAVIGATE:${args['screenName']}";
+          if (args['screenName']?.toString() == 'onboarding') {
+            result = "Navigating to onboarding is not available to the assistant.";
+          } else {
+            result = "ACTION_NAVIGATE:${args['screenName']}";
+          }
           break;
 
         default:
