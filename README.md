@@ -157,3 +157,9 @@ Distributed under the Apache License 2.0. See `LICENSE` for more information.
 <p align="center">
   <i>Designed with precision. Built for performance.</i>
 </p>
+
+## BodyFasciNation — For the Compensating Man
+
+The Body screen now offers a separate, tongue-in-cheek test chamber. Use tape measurements, push-ups and plank seconds to compare with your own baseline. The Compensation Amplifier is a **fictional gag**; actual outputs are transparent arithmetic ratios and self-comparison. Manual data remains on-device. An optional photo-scan button discloses third-party AI image processing before opening Physiqo's existing scanner.
+
+See [measurement protocol, limitations, and privacy notes](docs/body-fascination.md).

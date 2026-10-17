@@ -9,6 +9,7 @@ import 'screens/home_screen.dart';
 import 'screens/moves_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/body_screen.dart';
+import 'screens/body_fascination_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/analysis_screen.dart';
 import 'screens/focused_move_screen.dart';
@@ -138,6 +139,7 @@ class _PhysiqoAppState extends State<PhysiqoApp> {
       routes: {
         '/main': (context) => const MainShell(),
         '/analysis': (context) => const AnalysisScreen(),
+        '/body_fascination': (context) => const BodyFascinationScreen(),
         '/focused_move': (context) => const FocusedMoveScreen(),
         '/onboarding': (context) => const OnboardingScreen(),
         '/schedule_overview': (context) => const ScheduleOverviewScreen(),
