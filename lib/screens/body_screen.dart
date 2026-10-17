@@ -155,6 +155,16 @@ class _BodyScreenState extends State<BodyScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: AppTheme.spacingSm),
+                    Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: OutlinedButton.icon(
+                        key: const Key('open-body-fascination'),
+                        onPressed: () => Navigator.of(context).pushNamed('/body_fascination'),
+                        icon: const Icon(Icons.straighten, size: 18),
+                        label: const Text('BodyFasciNation · Physique tester'),
+                      ),
+                    ),
                     const SizedBox(height: AppTheme.spacingMd),
 
                     // ─── Main content: Body map + muscle selector ────────────

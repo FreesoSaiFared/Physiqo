@@ -91,3 +91,11 @@ Center AI button: circular waveform ring of dense radial orange spikes, no fille
 - **Metric/Imperial Toggle:** In onboarding Step 2, users choose their unit system (`metric` or `imperial`). It dynamically sets height/weight suffix labels (`cm`/`kg` vs `in`/`lbs`) and stores configuration properties.
 - **Docked Button Layout Rule:** To prevent vertical or horizontal overflows, Action Buttons must remain docked at the bottom of the screens, while input controls scroll dynamically inside `Expanded` SingleChildScrollViews.
 
+## BodyFasciNation companion test chamber (2026-10-17)
+
+- Separate satirical self-measurement feature, not a rename of Physiqo or the whole design system.
+- /body_fascination opens lib/screens/body_fascination_screen.dart from BodyScreen.
+- lib/models/body_fascination_metrics.dart contains validated self-entered tape and strength data and previous-session differences.
+- Per-profile local SharedPreferences history, 24 records maximum; no invented physical or psychological score.
+- Optional photo scanner is explicitly consented and discloses external BYOK AI processing.
+- See docs/body-fascination.md; test with flutter test test/body_fascination_test.dart.
